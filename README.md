@@ -43,7 +43,7 @@ You can drop it into your project with JitPack:
 <dependency>
     <groupId>com.github.senkex</groupId>
     <artifactId>HeadRender</artifactId>
-    <version>1.0.0</version>
+    <version>version</version>
 </dependency>
 ```
 
@@ -55,7 +55,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.senkex:HeadRender:1.0.0")
+    implementation("com.github.senkex:HeadRender:version")
 }
 ```
 
@@ -67,7 +67,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.senkex:HeadRender:1.0.0'
+    implementation 'com.github.senkex:HeadRender:version'
 }
 ```
 
