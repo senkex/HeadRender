@@ -103,6 +103,88 @@ RenderOptions options = RenderOptions.builder()
 HeadRender.render("Senkex", options).thenAccept(lines -> lines.forEach(player::sendMessage));
 ```
 
+### Inline Head Tags
+
+You can also embed heads inside arbitrary text using `<head>NAME</head>` tags.
+The library parses the input, renders every tag and gives you back chat-ready
+lines you can send to a player, a hologram, a text display, an action bar
+wrapper, an NPC plugin, or anything else that consumes multi-line text.
+No texture pack required, no client mod, no custom font:
+
+```java
+HeadRender.parse("Welcome <head>Senkex</head> to the server!")
+        .thenAccept(lines -> lines.forEach(player::sendMessage));
+```
+
+You can place multiple tags in the same string and mix them with newlines:
+
+```java
+String template = "Top players:\n"
+        + "1. <head>Senkex</head> Senkex\n"
+        + "2. <head>Notch</head> Notch";
+
+HeadRender.parse(template).thenAccept(lines -> lines.forEach(player::sendMessage));
+```
+
+Custom options work the same way as `render`:
+
+```java
+RenderOptions options = RenderOptions.builder().size(6).helmetLayer(true).build();
+HeadRender.parse("<head>Senkex</head> joined", options)
+        .thenAccept(lines -> lines.forEach(player::sendMessage));
+```
+
+The tag is case-insensitive and accepts both player names and trimmed UUIDs.
+Heads are rendered as `size` rows; the surrounding text sits on the vertical
+center row and is padded with spaces on the other rows so the columns line up.
+
+#### Custom Tag Name
+
+Don't like `<head>`? Pass any tag name and the parser will match it:
+
+```java
+HeadRender.parse("Hola <face>Senkex</face>!", RenderOptions.defaults(), "face")
+        .thenAccept(lines -> lines.forEach(player::sendMessage));
+```
+
+#### Custom Pattern
+
+For non-XML placeholder syntaxes (`{head:NAME}`, `%head_NAME%`, MiniMessage
+style, etc.) supply your own `Pattern`. The player name must be capture
+group `1`:
+
+```java
+import java.util.regex.Pattern;
+
+Pattern placeholder = Pattern.compile("\\{head:([^}\\s]+)}");
+
+HeadRender.parse("Welcome {head:Senkex}!", RenderOptions.defaults(), placeholder)
+        .thenAccept(lines -> lines.forEach(player::sendMessage));
+```
+
+#### Manual Usage (no parser)
+
+If you want full control over where the lines go (mixing with your own
+formatting engine, building MiniMessage components, etc.) skip `parse`
+entirely and call `render` directly:
+
+```java
+HeadRender.render("Senkex", RenderOptions.of(2)).thenAccept(lines -> {
+    // 2-line head fits in the two MOTD lines
+    motd.setLine1(lines.get(0));
+    motd.setLine2(lines.get(1));
+});
+```
+
+#### Sizing Cheatsheet
+
+| Context | Suggested `size` | Notes |
+|---|---|---|
+| Chat | `8` (default) | Looks crisp, takes 8 chat lines |
+| Text Display / Hologram | `6` – `8` | Lines are tight, so the head looks compact |
+| MOTD | `2` | MOTD only has two lines available |
+| Action bar / single line | not supported | Needs a custom font / resource pack |
+
 ### Custom Service
 
 The static facade is just a wrapper around a `HeadRenderService` so you can replace the provider,

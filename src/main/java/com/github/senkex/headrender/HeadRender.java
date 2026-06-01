@@ -9,6 +9,7 @@ import com.github.senkex.headrender.service.DefaultHeadRenderService;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.regex.Pattern;
 
 /**
  * Static facade and main entry point for the HeadRender library.
@@ -129,6 +130,67 @@ public final class HeadRender {
      */
     public static CompletableFuture<List<String>> render(final UUID uuid, final RenderOptions options) {
         return service().render(uuid, options);
+    }
+
+    /**
+     * Parses text containing {@code <head>NAME</head>} tags and replaces
+     * every tag with the rendered head of {@code NAME}.
+     *
+     * <p>The output is one chat line per row, ready to send to a player,
+     * a hologram, a text display or any other multi-line consumer. Text
+     * around the tag is placed on the vertical center row.</p>
+     *
+     * <p>Example:</p>
+     * <pre>{@code
+     * HeadRender.parse("Welcome <head>Senkex</head> to the server!")
+     *     .thenAccept(lines -> lines.forEach(player::sendMessage));
+     * }</pre>
+     *
+     * @param text the text to parse
+     * @return a future completed with the resulting chat lines
+     */
+    public static CompletableFuture<List<String>> parse(final String text) {
+        return service().parse(text);
+    }
+
+    /**
+     * Parses text containing {@code <head>NAME</head>} tags with custom options.
+     *
+     * @param text the text to parse
+     * @param options the render configuration applied to every head tag
+     * @return a future completed with the resulting chat lines
+     */
+    public static CompletableFuture<List<String>> parse(final String text, final RenderOptions options) {
+        return service().parse(text, options);
+    }
+
+    /**
+     * Parses text using a custom tag name (e.g. {@code "face"} matches
+     * {@code <face>NAME</face>}).
+     *
+     * @param text the text to parse
+     * @param options the render configuration
+     * @param tagName the tag name to match (case-insensitive)
+     * @return a future completed with the resulting chat lines
+     */
+    public static CompletableFuture<List<String>> parse(final String text, final RenderOptions options, final String tagName) {
+        return service().parse(text, options, tagName);
+    }
+
+    /**
+     * Parses text using a fully custom pattern. The pattern must expose
+     * the head name as capture group {@code 1}.
+     *
+     * <p>Use this overload for placeholder syntaxes other than XML-style
+     * tags, e.g. {@code {head:NAME}} or {@code %head_NAME%}.</p>
+     *
+     * @param text the text to parse
+     * @param options the render configuration
+     * @param pattern the regex pattern with the head name as group 1
+     * @return a future completed with the resulting chat lines
+     */
+    public static CompletableFuture<List<String>> parse(final String text, final RenderOptions options, final Pattern pattern) {
+        return service().parse(text, options, pattern);
     }
 
     /**

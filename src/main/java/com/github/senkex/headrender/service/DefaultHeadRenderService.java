@@ -8,17 +8,24 @@ import com.github.senkex.headrender.exception.HeadRenderException;
 import com.github.senkex.headrender.image.ImageScaler;
 import com.github.senkex.headrender.image.PixelRenderer;
 import com.github.senkex.headrender.model.RenderOptions;
+import com.github.senkex.headrender.parser.HeadTagParser;
 import com.github.senkex.headrender.provider.MinotarSkinProvider;
 
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
 
 /**
  * Default {@link HeadRenderService} implementation.
@@ -85,6 +92,120 @@ public final class DefaultHeadRenderService implements HeadRenderService {
     public CompletableFuture<List<String>> render(final UUID uuid, final RenderOptions options) {
         Objects.requireNonNull(uuid, "UUID cannot be null");
         return render(uuid.toString().replace("-", ""), options);
+    }
+
+    /**
+     * Parses the given text and replaces every {@code <head>NAME</head>}
+     * tag with the rendered head of {@code NAME}.
+     *
+     * @param text the text to parse
+     * @param options the render configuration applied to every head tag
+     * @return a future completed with the resulting chat lines
+     */
+    @Override
+    public CompletableFuture<List<String>> parse(final String text, final RenderOptions options, final Pattern pattern) {
+        Objects.requireNonNull(text, "Text cannot be null");
+        Objects.requireNonNull(options, "Options cannot be null");
+        Objects.requireNonNull(pattern, "Pattern cannot be null");
+
+        if (!HeadTagParser.containsTag(text, pattern)) {
+            final List<String> raw = new ArrayList<>();
+            for (final String line : text.split("\n", -1)) {
+                raw.add(line);
+            }
+            return CompletableFuture.completedFuture(raw);
+        }
+
+        final String[] blocks = text.split("\n", -1);
+        final Set<String> targets = new LinkedHashSet<>();
+        for (final String block : blocks) {
+            for (final HeadTagParser.Segment segment : HeadTagParser.parse(block, pattern)) {
+                if (segment.isHead()) {
+                    targets.add(segment.value());
+                }
+            }
+        }
+
+        final Map<String, CompletableFuture<List<String>>> futures = new HashMap<>();
+        for (final String target : targets) {
+            futures.put(target, render(target, options));
+        }
+
+        return CompletableFuture
+                .allOf(futures.values().toArray(new CompletableFuture<?>[0]))
+                .thenApply(ignored -> {
+                    final Map<String, List<String>> resolved = new HashMap<>(futures.size());
+                    for (final Map.Entry<String, CompletableFuture<List<String>>> entry : futures.entrySet()) {
+                        resolved.put(entry.getKey(), entry.getValue().join());
+                    }
+                    return assemble(blocks, resolved, options, pattern);
+                });
+    }
+
+    private static List<String> assemble(final String[] blocks,
+                                         final Map<String, List<String>> heads,
+                                         final RenderOptions options,
+                                         final Pattern pattern) {
+        final int size = options.getSize();
+        final int middle = size / 2;
+        final List<String> output = new ArrayList<>();
+
+        for (final String block : blocks) {
+            final List<HeadTagParser.Segment> segments = HeadTagParser.parse(block, pattern);
+            if (segments.isEmpty()) {
+                output.add(block);
+                continue;
+            }
+
+            boolean hasHead = false;
+            for (final HeadTagParser.Segment segment : segments) {
+                if (segment.isHead()) {
+                    hasHead = true;
+                    break;
+                }
+            }
+            if (!hasHead) {
+                output.add(block);
+                continue;
+            }
+
+            final StringBuilder[] rows = new StringBuilder[size];
+            for (int i = 0; i < size; i++) {
+                rows[i] = new StringBuilder();
+            }
+
+            for (final HeadTagParser.Segment segment : segments) {
+                if (segment.isHead()) {
+                    final List<String> rendered = heads.get(segment.value());
+                    final int rowCount = Math.min(size, rendered.size());
+                    for (int i = 0; i < rowCount; i++) {
+                        rows[i].append(rendered.get(i));
+                    }
+                } else {
+                    final String value = segment.value();
+                    final String pad = repeat(' ', value.length());
+                    for (int i = 0; i < size; i++) {
+                        rows[i].append(i == middle ? value : pad);
+                    }
+                }
+            }
+
+            for (final StringBuilder row : rows) {
+                output.add(row.toString());
+            }
+        }
+        return output;
+    }
+
+    private static String repeat(final char character, final int count) {
+        if (count <= 0) {
+            return "";
+        }
+        final char[] buffer = new char[count];
+        for (int i = 0; i < count; i++) {
+            buffer[i] = character;
+        }
+        return new String(buffer);
     }
 
     /**

@@ -5,7 +5,7 @@ plugins {
 }
 
 group = 'com.github.senkex'
-version = '1.0.0'
+version = '1.0.2'
 
 repositories {
     mavenCentral()
@@ -62,7 +62,7 @@ publishing {
 
             pom {
                 name = 'HeadRender'
-                description = 'API for rendering Minecraft player heads in chat using pixel skin rendering.'
+                description = 'Async pixel-accurate skin head rendering for Minecraft chat'
                 url = 'https://github.com/senkex/HeadRender'
                 licenses {
                     license {
