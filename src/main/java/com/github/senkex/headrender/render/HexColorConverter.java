@@ -1,4 +1,4 @@
-package com.github.senkex.headrender.color;
+package com.github.senkex.headrender.render;
 
 import java.awt.Color;
 import java.util.Objects;

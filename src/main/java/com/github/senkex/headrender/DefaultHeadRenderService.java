@@ -1,15 +1,15 @@
-package com.github.senkex.headrender.service;
+package com.github.senkex.headrender;
 
 import com.github.senkex.headrender.api.HeadRenderService;
+import com.github.senkex.headrender.api.HeadRenderer;
 import com.github.senkex.headrender.api.SkinCache;
 import com.github.senkex.headrender.api.SkinProvider;
-import com.github.senkex.headrender.cache.InMemorySkinCache;
-import com.github.senkex.headrender.exception.HeadRenderException;
-import com.github.senkex.headrender.image.ImageScaler;
-import com.github.senkex.headrender.image.PixelRenderer;
-import com.github.senkex.headrender.model.RenderOptions;
-import com.github.senkex.headrender.parser.HeadTagParser;
-import com.github.senkex.headrender.provider.MinotarSkinProvider;
+import com.github.senkex.headrender.effect.HeadEffect;
+import com.github.senkex.headrender.render.HexPixelRenderer;
+import com.github.senkex.headrender.render.ImageScaler;
+import com.github.senkex.headrender.skin.InMemorySkinCache;
+import com.github.senkex.headrender.skin.MinotarSkinProvider;
+import com.github.senkex.headrender.text.HeadTagParser;
 
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
@@ -41,11 +41,13 @@ public final class DefaultHeadRenderService implements HeadRenderService {
 
     private final SkinProvider provider;
     private final SkinCache cache;
+    private final HeadRenderer renderer;
     private final ExecutorService executor;
 
     private DefaultHeadRenderService(final Builder builder) {
         this.provider = builder.provider != null ? builder.provider : new MinotarSkinProvider();
         this.cache = builder.cache != null ? builder.cache : new InMemorySkinCache();
+        this.renderer = builder.renderer != null ? builder.renderer : HexPixelRenderer.INSTANCE;
         this.executor = builder.executor != null ? builder.executor : defaultExecutor();
     }
 
@@ -73,8 +75,11 @@ public final class DefaultHeadRenderService implements HeadRenderService {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 final BufferedImage image = obtainImage(target, options);
-                final BufferedImage scaled = ImageScaler.scalePixel(image, options.getSize(), options.getSize());
-                return PixelRenderer.renderImage(scaled, options);
+                BufferedImage scaled = ImageScaler.scalePixel(image, options.getSize(), options.getSize());
+                for (final HeadEffect effect : options.getEffects()) {
+                    scaled = effect.apply(scaled);
+                }
+                return renderer.render(scaled, options);
             } catch (final Exception exception) {
                 throw new HeadRenderException("Failed to render head for " + target, exception);
             }
@@ -146,8 +151,6 @@ public final class DefaultHeadRenderService implements HeadRenderService {
                                          final Map<String, List<String>> heads,
                                          final RenderOptions options,
                                          final Pattern pattern) {
-        final int size = options.getSize();
-        final int middle = size / 2;
         final List<String> output = new ArrayList<>();
 
         for (final String block : blocks) {
@@ -157,34 +160,39 @@ public final class DefaultHeadRenderService implements HeadRenderService {
                 continue;
             }
 
-            boolean hasHead = false;
+            // Block height is driven by the tallest rendered head so the
+            // alignment stays correct regardless of the active renderer.
+            int height = 0;
             for (final HeadTagParser.Segment segment : segments) {
                 if (segment.isHead()) {
-                    hasHead = true;
-                    break;
+                    final List<String> rendered = heads.get(segment.value());
+                    if (rendered != null) {
+                        height = Math.max(height, rendered.size());
+                    }
                 }
             }
-            if (!hasHead) {
+            if (height == 0) {
                 output.add(block);
                 continue;
             }
 
-            final StringBuilder[] rows = new StringBuilder[size];
-            for (int i = 0; i < size; i++) {
+            final int middle = height / 2;
+            final StringBuilder[] rows = new StringBuilder[height];
+            for (int i = 0; i < height; i++) {
                 rows[i] = new StringBuilder();
             }
 
             for (final HeadTagParser.Segment segment : segments) {
                 if (segment.isHead()) {
                     final List<String> rendered = heads.get(segment.value());
-                    final int rowCount = Math.min(size, rendered.size());
+                    final int rowCount = Math.min(height, rendered.size());
                     for (int i = 0; i < rowCount; i++) {
                         rows[i].append(rendered.get(i));
                     }
                 } else {
                     final String value = segment.value();
                     final String pad = repeat(' ', value.length());
-                    for (int i = 0; i < size; i++) {
+                    for (int i = 0; i < height; i++) {
                         rows[i].append(i == middle ? value : pad);
                     }
                 }
@@ -226,6 +234,16 @@ public final class DefaultHeadRenderService implements HeadRenderService {
     @Override
     public SkinProvider getProvider() {
         return provider;
+    }
+
+    /**
+     * Returns the renderer strategy used by this service.
+     *
+     * @return the underlying head renderer
+     */
+    @Override
+    public HeadRenderer getRenderer() {
+        return renderer;
     }
 
     /**
@@ -280,6 +298,7 @@ public final class DefaultHeadRenderService implements HeadRenderService {
 
         private SkinProvider provider;
         private SkinCache cache;
+        private HeadRenderer renderer;
         private ExecutorService executor;
 
         private Builder() {
@@ -304,6 +323,19 @@ public final class DefaultHeadRenderService implements HeadRenderService {
          */
         public Builder cache(final SkinCache cache) {
             this.cache = Objects.requireNonNull(cache, "Cache cannot be null");
+            return this;
+        }
+
+        /**
+         * Sets the renderer strategy used to turn head images into lines.
+         *
+         * <p>Defaults to {@link HexPixelRenderer}.</p>
+         *
+         * @param renderer the renderer to use, must not be {@code null}
+         * @return this builder
+         */
+        public Builder renderer(final HeadRenderer renderer) {
+            this.renderer = Objects.requireNonNull(renderer, "Renderer cannot be null");
             return this;
         }
 

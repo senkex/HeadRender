@@ -1,4 +1,4 @@
-package com.github.senkex.headrender.parser;
+package com.github.senkex.headrender.text;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -29,8 +29,74 @@ public final class HeadTagParser {
             Pattern.CASE_INSENSITIVE
     );
 
+    /**
+     * Pattern matching PlaceholderAPI-style {@code %head-NAME%} and
+     * {@code %head_NAME%} placeholders.
+     *
+     * <p>Both the {@code -} and {@code _} separators are accepted so the
+     * same string works regardless of the convention you use. Names accept
+     * any sequence of characters other than whitespace and {@code %} so
+     * trimmed UUIDs and usernames both work.</p>
+     */
+    public static final Pattern PLACEHOLDER = placeholderFor("head");
+
+    /**
+     * Pattern matching namespaced {@code %headrender:NAME%} placeholders.
+     *
+     * <p>This is the canonical HeadRender placeholder. Names accept any
+     * sequence of characters other than whitespace and {@code %} so trimmed
+     * UUIDs and usernames both work.</p>
+     */
+    public static final Pattern NAMESPACED = namespacedFor("headrender");
+
     private HeadTagParser() {
         throw new UnsupportedOperationException("Utility class");
+    }
+
+    /**
+     * Builds a namespaced placeholder pattern for the given namespace.
+     *
+     * <p>The returned pattern matches {@code %NAMESPACE:VALUE%} where
+     * {@code NAMESPACE} is the supplied namespace (case-insensitive). For
+     * example {@code namespacedFor("headrender")} matches
+     * {@code %headrender:Senkex%}.</p>
+     *
+     * @param namespace the placeholder namespace (e.g. {@code "headrender"})
+     * @return the compiled pattern
+     */
+    public static Pattern namespacedFor(final String namespace) {
+        Objects.requireNonNull(namespace, "Namespace cannot be null");
+        if (namespace.isEmpty()) {
+            throw new IllegalArgumentException("Namespace cannot be empty");
+        }
+        final String escaped = Pattern.quote(namespace);
+        return Pattern.compile(
+                "%" + escaped + ":([^%\\s]+)%",
+                Pattern.CASE_INSENSITIVE
+        );
+    }
+
+    /**
+     * Builds a placeholder pattern for the given prefix.
+     *
+     * <p>The returned pattern matches {@code %PREFIX-VALUE%} and
+     * {@code %PREFIX_VALUE%} where {@code PREFIX} is the supplied prefix
+     * (case-insensitive). For example {@code placeholderFor("head")} matches
+     * both {@code %head-Senkex%} and {@code %head_Senkex%}.</p>
+     *
+     * @param prefix the placeholder prefix (e.g. {@code "head"}, {@code "face"})
+     * @return the compiled pattern
+     */
+    public static Pattern placeholderFor(final String prefix) {
+        Objects.requireNonNull(prefix, "Prefix cannot be null");
+        if (prefix.isEmpty()) {
+            throw new IllegalArgumentException("Prefix cannot be empty");
+        }
+        final String escaped = Pattern.quote(prefix);
+        return Pattern.compile(
+                "%" + escaped + "[-_]([^%\\s]+)%",
+                Pattern.CASE_INSENSITIVE
+        );
     }
 
     /**

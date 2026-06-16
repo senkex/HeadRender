@@ -1,5 +1,11 @@
-package com.github.senkex.headrender.model;
+package com.github.senkex.headrender;
 
+import com.github.senkex.headrender.effect.HeadEffect;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -33,6 +39,7 @@ public final class RenderOptions {
     private final boolean helmetLayer;
     private final boolean useCache;
     private final int alphaThreshold;
+    private final List<HeadEffect> effects;
 
     private RenderOptions(final Builder builder) {
         this.size = builder.size;
@@ -40,6 +47,7 @@ public final class RenderOptions {
         this.helmetLayer = builder.helmetLayer;
         this.useCache = builder.useCache;
         this.alphaThreshold = builder.alphaThreshold;
+        this.effects = Collections.unmodifiableList(new ArrayList<>(builder.effects));
     }
 
     /**
@@ -89,6 +97,16 @@ public final class RenderOptions {
     }
 
     /**
+     * Returns the ordered, immutable list of effects applied to the head
+     * image before rendering.
+     *
+     * @return the effects, never {@code null} (possibly empty)
+     */
+    public List<HeadEffect> getEffects() {
+        return effects;
+    }
+
+    /**
      * Returns a builder pre-populated with this instance's values.
      *
      * @return a mutable copy of this configuration
@@ -99,7 +117,8 @@ public final class RenderOptions {
                 .character(character)
                 .helmetLayer(helmetLayer)
                 .useCache(useCache)
-                .alphaThreshold(alphaThreshold);
+                .alphaThreshold(alphaThreshold)
+                .effects(effects);
     }
 
     /**
@@ -145,6 +164,7 @@ public final class RenderOptions {
         private boolean helmetLayer = true;
         private boolean useCache = true;
         private int alphaThreshold = DEFAULT_ALPHA_THRESHOLD;
+        private final List<HeadEffect> effects = new ArrayList<>();
 
         private Builder() {
         }
@@ -211,6 +231,36 @@ public final class RenderOptions {
                 throw new IllegalArgumentException("Alpha threshold must be in [0, 255]");
             }
             this.alphaThreshold = threshold;
+            return this;
+        }
+
+        /**
+         * Appends an effect applied to the head image before rendering.
+         *
+         * <p>Effects run in the order they are added. See
+         * {@link com.github.senkex.headrender.effect.HeadEffects} for the
+         * built-in ones.</p>
+         *
+         * @param effect the effect to append, must not be {@code null}
+         * @return this builder
+         */
+        public Builder effect(final HeadEffect effect) {
+            this.effects.add(Objects.requireNonNull(effect, "Effect cannot be null"));
+            return this;
+        }
+
+        /**
+         * Replaces the current effects with the given collection.
+         *
+         * @param effects the effects to apply, must not be {@code null}
+         * @return this builder
+         */
+        public Builder effects(final Collection<? extends HeadEffect> effects) {
+            Objects.requireNonNull(effects, "Effects cannot be null");
+            this.effects.clear();
+            for (final HeadEffect effect : effects) {
+                this.effects.add(Objects.requireNonNull(effect, "Effect cannot be null"));
+            }
             return this;
         }
 

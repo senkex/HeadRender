@@ -1,7 +1,7 @@
 package com.github.senkex.headrender.api;
 
-import com.github.senkex.headrender.model.RenderOptions;
-import com.github.senkex.headrender.parser.HeadTagParser;
+import com.github.senkex.headrender.RenderOptions;
+import com.github.senkex.headrender.text.HeadTagParser;
 
 import java.util.List;
 import java.util.UUID;
@@ -115,6 +115,60 @@ public interface HeadRenderService {
     CompletableFuture<List<String>> parse(String text, RenderOptions options, Pattern pattern);
 
     /**
+     * Parses the given text replacing PlaceholderAPI-style
+     * {@code %head-NAME%} and {@code %head_NAME%} placeholders with the
+     * rendered head of {@code NAME}.
+     *
+     * <p>Convenience overload over {@link #parse(String, RenderOptions, Pattern)}
+     * using {@link HeadTagParser#PLACEHOLDER}. Handy when your text comes
+     * from configs written with {@code %} placeholders instead of XML tags.</p>
+     *
+     * @param text the text to parse
+     * @param options the render configuration applied to every placeholder
+     * @return a future completed with the resulting chat lines
+     */
+    default CompletableFuture<List<String>> parsePlaceholders(final String text, final RenderOptions options) {
+        return parse(text, options, HeadTagParser.PLACEHOLDER);
+    }
+
+    /**
+     * Parses the given text replacing {@code %head-NAME%} / {@code %head_NAME%}
+     * placeholders using default options.
+     *
+     * @param text the text to parse
+     * @return a future completed with the resulting chat lines
+     */
+    default CompletableFuture<List<String>> parsePlaceholders(final String text) {
+        return parsePlaceholders(text, RenderOptions.defaults());
+    }
+
+    /**
+     * Parses the given text replacing namespaced {@code %headrender:NAME%}
+     * placeholders with the rendered head of {@code NAME}.
+     *
+     * <p>Convenience overload over {@link #parse(String, RenderOptions, Pattern)}
+     * using {@link HeadTagParser#NAMESPACED}.</p>
+     *
+     * @param text the text to parse
+     * @param options the render configuration applied to every placeholder
+     * @return a future completed with the resulting chat lines
+     */
+    default CompletableFuture<List<String>> parseNamespaced(final String text, final RenderOptions options) {
+        return parse(text, options, HeadTagParser.NAMESPACED);
+    }
+
+    /**
+     * Parses the given text replacing {@code %headrender:NAME%} placeholders
+     * using default options.
+     *
+     * @param text the text to parse
+     * @return a future completed with the resulting chat lines
+     */
+    default CompletableFuture<List<String>> parseNamespaced(final String text) {
+        return parseNamespaced(text, RenderOptions.defaults());
+    }
+
+    /**
      * Returns the cache used by this service.
      *
      * @return the underlying skin cache
@@ -127,6 +181,13 @@ public interface HeadRenderService {
      * @return the underlying skin provider
      */
     SkinProvider getProvider();
+
+    /**
+     * Returns the renderer strategy used to turn head images into lines.
+     *
+     * @return the underlying head renderer
+     */
+    HeadRenderer getRenderer();
 
     /**
      * Releases any resource owned by this service (thread pools, etc.).

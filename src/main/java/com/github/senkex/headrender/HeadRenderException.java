@@ -1,4 +1,4 @@
-package com.github.senkex.headrender.exception;
+package com.github.senkex.headrender;
 
 /**
  * Unchecked exception raised when a head render operation fails.

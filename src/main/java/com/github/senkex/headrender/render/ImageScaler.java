@@ -1,4 +1,4 @@
-package com.github.senkex.headrender.image;
+package com.github.senkex.headrender.render;
 
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;

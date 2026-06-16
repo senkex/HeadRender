@@ -1,4 +1,4 @@
-package com.github.senkex.headrender.cache;
+package com.github.senkex.headrender.skin;
 
 import com.github.senkex.headrender.api.SkinCache;
 

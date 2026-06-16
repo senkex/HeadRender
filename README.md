@@ -147,9 +147,38 @@ HeadRender.parse("Hola <face>Senkex</face>!", RenderOptions.defaults(), "face")
         .thenAccept(lines -> lines.forEach(player::sendMessage));
 ```
 
+#### Placeholder Syntax (`%headrender:NAME%`, `%head-NAME%`)
+
+If you prefer PlaceholderAPI-style placeholders over XML tags, there are
+built-in shortcuts. The canonical one is namespaced:
+
+```java
+HeadRender.parseNamespaced("Top 1: %headrender:Senkex%")
+        .thenAccept(lines -> lines.forEach(player::sendMessage));
+```
+
+The PlaceholderAPI-flavored `%head-NAME%` and `%head_NAME%` (either separator)
+also work out of the box:
+
+```java
+HeadRender.parsePlaceholders("Bienvenido %head-Senkex% al server!")
+        .thenAccept(lines -> lines.forEach(player::sendMessage));
+```
+
+With custom options:
+
+```java
+RenderOptions options = RenderOptions.builder().size(3).build();
+HeadRender.parsePlaceholders("%head_Senkex% Senkex", options)
+        .thenAccept(lines -> lines.forEach(player::sendMessage));
+```
+
+Need a different prefix (`%face-NAME%`, `%avatar_NAME%`...)? Build the pattern
+with `HeadTagParser.placeholderFor("face")` and pass it to `parse`.
+
 #### Custom Pattern
 
-For non-XML placeholder syntaxes (`{head:NAME}`, `%head_NAME%`, MiniMessage
+For non-XML placeholder syntaxes (`{head:NAME}`, MiniMessage
 style, etc.) supply your own `Pattern`. The player name must be capture
 group `1`:
 
@@ -181,9 +210,105 @@ HeadRender.render("Senkex", RenderOptions.of(2)).thenAccept(lines -> {
 | Context | Suggested `size` | Notes |
 |---|---|---|
 | Chat | `8` (default) | Looks crisp, takes 8 chat lines |
+| Scoreboard | `2` – `4` | Use a no-limit board API (e.g. FastBoard); one head row per scoreboard line |
+| Tab (header/footer) | `2` – `4` | Header and footer are multi-line, so the head stacks fine |
 | Text Display / Hologram | `6` – `8` | Lines are tight, so the head looks compact |
 | MOTD | `2` | MOTD only has two lines available |
-| Action bar / single line | not supported | Needs a custom font / resource pack |
+| Action bar / single tab name | not supported | A head on **one** line needs a negative-space font (resource pack) |
+
+### Adventure Components
+
+Every `HeadRender` method has a mirror on `HeadRenderComponents` that returns
+Kyori Adventure `Component`s instead of legacy strings. Use it on Paper /
+Velocity, for hover/click decoration, or MiniMessage interop:
+
+```java
+HeadRenderComponents.render("Senkex")
+        .thenAccept(lines -> lines.forEach(player::sendMessage)); // Audience#sendMessage
+
+// Single newline-joined component (holograms, lore, ...)
+HeadRenderComponents.renderMultiline("Senkex").thenAccept(player::sendMessage);
+
+// Placeholders work too
+HeadRenderComponents.parseNamespaced("Top 1: %headrender:Senkex%")
+        .thenAccept(lines -> lines.forEach(player::sendMessage));
+```
+
+The Adventure dependency is **optional** (`compileOnly`): the plain
+`HeadRender` facade never touches it, so legacy-only plugins don't have to ship
+it. Add it yourself only if you call the component API:
+
+```groovy
+compileOnly 'net.kyori:adventure-api:4.17.0'
+compileOnly 'net.kyori:adventure-text-serializer-legacy:4.17.0'
+```
+
+If you already have lines from the legacy API, convert them directly with
+`AdventureTextSerializer.toComponents(lines)` / `toMultilineComponent(lines)`.
+
+### Renderers
+
+How pixels become text is pluggable through the `HeadRenderer` strategy. The
+default is `HexPixelRenderer` (one colored character per pixel, no resource
+pack). Swap it on the service builder:
+
+```java
+HeadRenderService service = DefaultHeadRenderService.builder()
+        .renderer(HexPixelRenderer.INSTANCE)
+        .build();
+
+HeadRender.use(service);
+```
+
+A negative-space font renderer (tiny single-line inline heads, resource-pack
+backed) plugs into this same interface.
+
+### Effects
+
+Transform the head image before it's rendered — no resource pack, no network.
+Effects come from `HeadEffects` and run in the order you add them:
+
+```java
+RenderOptions options = RenderOptions.builder()
+        .size(8)
+        .effect(HeadEffects.grayscale())
+        .effect(HeadEffects.hueShift(45))
+        .build();
+
+HeadRender.render("Senkex", options).thenAccept(lines -> lines.forEach(player::sendMessage));
+```
+
+Built-in effects: `grayscale()`, `invert()`, `hueShift(deg)`, `saturate(factor)`,
+`brightness(factor)`, `sepia()`, `tint(color, strength)`, `flipHorizontal()`,
+`flipVertical()`, `rotate180()`. Implement `HeadEffect` for your own, and chain
+them with `effect.andThen(other)`.
+
+### Skin Providers
+
+The default source is Minotar (names and UUIDs). Swap or combine it on the
+service builder. Built-in providers:
+
+| Provider | Target | Notes |
+|---|---|---|
+| `MinotarSkinProvider` | name or UUID | default |
+| `CrafatarSkinProvider` | UUID | `&overlay` for the helmet |
+| `SkinMcSkinProvider` | name | SkinMC face endpoint |
+| `UrlSkinProvider` | image URL | crops the face from a full skin automatically |
+| `LocalFileSkinProvider` | file name | reads `<dir>/<name>.png` |
+| `StaticSkinProvider` | (ignored) | always serves one image — great as a fallback |
+| `FallbackSkinProvider` | — | tries a chain, first success wins |
+
+```java
+SkinProvider source = new FallbackSkinProvider(
+        new MinotarSkinProvider(),
+        new SkinMcSkinProvider(),
+        new StaticSkinProvider(steveImage)); // never fails
+
+HeadRender.use(DefaultHeadRenderService.builder().provider(source).build());
+```
+
+Full-skin sources (`UrlSkinProvider`, `LocalFileSkinProvider`, `StaticSkinProvider`)
+crop the 8×8 face — and the helmet overlay when enabled — via `SkinFaces`.
 
 ### Custom Service
 
