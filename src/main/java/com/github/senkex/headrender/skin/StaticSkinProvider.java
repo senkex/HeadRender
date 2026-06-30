@@ -32,4 +32,14 @@ public final class StaticSkinProvider implements SkinProvider {
     public BufferedImage fetch(final String target, final int size, final boolean includeHelmet) {
         return SkinFaces.faceOf(image, includeHelmet);
     }
+
+    @Override
+    public BufferedImage fetchSkin(final String target) {
+        return image;
+    }
+
+    @Override
+    public boolean supportsFullSkin() {
+        return true;
+    }
 }

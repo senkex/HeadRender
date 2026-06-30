@@ -7,8 +7,12 @@ import com.github.senkex.headrender.api.SkinProvider;
 import com.github.senkex.headrender.effect.HeadEffect;
 import com.github.senkex.headrender.render.HexPixelRenderer;
 import com.github.senkex.headrender.render.ImageScaler;
+import com.github.senkex.headrender.render.RenderPart;
+import com.github.senkex.headrender.skin.FallbackSkinProvider;
 import com.github.senkex.headrender.skin.InMemorySkinCache;
 import com.github.senkex.headrender.skin.MinotarSkinProvider;
+import com.github.senkex.headrender.skin.MojangSkinProvider;
+import com.github.senkex.headrender.skin.SkinParts;
 import com.github.senkex.headrender.text.HeadTagParser;
 
 import java.awt.image.BufferedImage;
@@ -45,7 +49,7 @@ public final class DefaultHeadRenderService implements HeadRenderService {
     private final ExecutorService executor;
 
     private DefaultHeadRenderService(final Builder builder) {
-        this.provider = builder.provider != null ? builder.provider : new MinotarSkinProvider();
+        this.provider = builder.provider != null ? builder.provider : defaultProvider();
         this.cache = builder.cache != null ? builder.cache : new InMemorySkinCache();
         this.renderer = builder.renderer != null ? builder.renderer : HexPixelRenderer.INSTANCE;
         this.executor = builder.executor != null ? builder.executor : defaultExecutor();
@@ -75,7 +79,9 @@ public final class DefaultHeadRenderService implements HeadRenderService {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 final BufferedImage image = obtainImage(target, options);
-                BufferedImage scaled = ImageScaler.scalePixel(image, options.getSize(), options.getSize());
+                final int width = options.getSize();
+                final int height = options.getPart().heightFor(width);
+                BufferedImage scaled = ImageScaler.scalePixel(image, width, height);
                 for (final HeadEffect effect : options.getEffects()) {
                     scaled = effect.apply(scaled);
                 }
@@ -264,7 +270,7 @@ public final class DefaultHeadRenderService implements HeadRenderService {
             }
         }
 
-        final BufferedImage fetched = provider.fetch(target, options.getSize(), options.useHelmetLayer());
+        final BufferedImage fetched = fetchPart(target, options);
 
         if (options.useCache()) {
             cache.put(key, fetched);
@@ -272,8 +278,28 @@ public final class DefaultHeadRenderService implements HeadRenderService {
         return fetched;
     }
 
+    private BufferedImage fetchPart(final String target, final RenderOptions options) throws Exception {
+        if (options.getPart() == RenderPart.FACE) {
+            return provider.fetch(target, options.getSize(), options.useHelmetLayer());
+        }
+        if (!provider.supportsFullSkin()) {
+            throw new HeadRenderException("Provider " + provider.getClass().getSimpleName()
+                    + " cannot render " + options.getPart() + ": it does not expose full skins."
+                    + " Use MojangSkinProvider, UrlSkinProvider, LocalFileSkinProvider or StaticSkinProvider.");
+        }
+        final BufferedImage skin = provider.fetchSkin(target);
+        return SkinParts.body(skin, options.useHelmetLayer());
+    }
+
     private static String buildCacheKey(final String target, final RenderOptions options) {
-        return target + ':' + options.getSize() + ':' + (options.useHelmetLayer() ? 'h' : 'a');
+        return target + ':' + options.getSize() + ':' + (options.useHelmetLayer() ? 'h' : 'a')
+                + ':' + options.getPart();
+    }
+
+    private static SkinProvider defaultProvider() {
+        // Mojang first (official, no proxy, online skins in offline mode),
+        // Minotar as a proxy fallback if Mojang is down or rate-limits.
+        return new FallbackSkinProvider(new MojangSkinProvider(), new MinotarSkinProvider());
     }
 
     private static ExecutorService defaultExecutor() {

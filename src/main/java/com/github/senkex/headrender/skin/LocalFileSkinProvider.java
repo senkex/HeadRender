@@ -33,6 +33,11 @@ public final class LocalFileSkinProvider implements SkinProvider {
 
     @Override
     public BufferedImage fetch(final String target, final int size, final boolean includeHelmet) throws IOException {
+        return SkinFaces.faceOf(fetchSkin(target), includeHelmet);
+    }
+
+    @Override
+    public BufferedImage fetchSkin(final String target) throws IOException {
         Objects.requireNonNull(target, "Target cannot be null");
         if (target.isEmpty()) {
             throw new IllegalArgumentException("Target cannot be empty");
@@ -46,6 +51,11 @@ public final class LocalFileSkinProvider implements SkinProvider {
         if (image == null) {
             throw new IOException("Unable to decode skin file: " + file.getAbsolutePath());
         }
-        return SkinFaces.faceOf(image, includeHelmet);
+        return image;
+    }
+
+    @Override
+    public boolean supportsFullSkin() {
+        return true;
     }
 }

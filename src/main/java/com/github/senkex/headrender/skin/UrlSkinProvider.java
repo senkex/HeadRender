@@ -49,7 +49,20 @@ public final class UrlSkinProvider implements SkinProvider {
         if (target.isEmpty()) {
             throw new IllegalArgumentException("Target (URL) cannot be empty");
         }
-        final BufferedImage downloaded = HttpImages.download(target, timeoutMillis);
-        return SkinFaces.faceOf(downloaded, includeHelmet);
+        return SkinFaces.faceOf(fetchSkin(target), includeHelmet);
+    }
+
+    @Override
+    public BufferedImage fetchSkin(final String target) throws IOException {
+        Objects.requireNonNull(target, "Target (URL) cannot be null");
+        if (target.isEmpty()) {
+            throw new IllegalArgumentException("Target (URL) cannot be empty");
+        }
+        return HttpImages.download(target, timeoutMillis);
+    }
+
+    @Override
+    public boolean supportsFullSkin() {
+        return true;
     }
 }

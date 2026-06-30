@@ -1,6 +1,7 @@
 package com.github.senkex.headrender;
 
 import com.github.senkex.headrender.effect.HeadEffect;
+import com.github.senkex.headrender.render.RenderPart;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -39,6 +40,7 @@ public final class RenderOptions {
     private final boolean helmetLayer;
     private final boolean useCache;
     private final int alphaThreshold;
+    private final RenderPart part;
     private final List<HeadEffect> effects;
 
     private RenderOptions(final Builder builder) {
@@ -47,6 +49,7 @@ public final class RenderOptions {
         this.helmetLayer = builder.helmetLayer;
         this.useCache = builder.useCache;
         this.alphaThreshold = builder.alphaThreshold;
+        this.part = builder.part;
         this.effects = Collections.unmodifiableList(new ArrayList<>(builder.effects));
     }
 
@@ -97,6 +100,15 @@ public final class RenderOptions {
     }
 
     /**
+     * Returns the skin part this configuration renders.
+     *
+     * @return the render part, never {@code null} (defaults to {@link RenderPart#FACE})
+     */
+    public RenderPart getPart() {
+        return part;
+    }
+
+    /**
      * Returns the ordered, immutable list of effects applied to the head
      * image before rendering.
      *
@@ -118,6 +130,7 @@ public final class RenderOptions {
                 .helmetLayer(helmetLayer)
                 .useCache(useCache)
                 .alphaThreshold(alphaThreshold)
+                .part(part)
                 .effects(effects);
     }
 
@@ -144,6 +157,17 @@ public final class RenderOptions {
     }
 
     /**
+     * Returns a full-body configuration of the given width (height follows the
+     * {@code 1:2} body ratio). Requires a full-skin provider.
+     *
+     * @param size the render width in pixels
+     * @return the new body configuration
+     */
+    public static RenderOptions body(final int size) {
+        return builder().size(size).part(RenderPart.BODY).build();
+    }
+
+    /**
      * Returns a new builder.
      *
      * @return a fresh builder instance
@@ -164,6 +188,7 @@ public final class RenderOptions {
         private boolean helmetLayer = true;
         private boolean useCache = true;
         private int alphaThreshold = DEFAULT_ALPHA_THRESHOLD;
+        private RenderPart part = RenderPart.FACE;
         private final List<HeadEffect> effects = new ArrayList<>();
 
         private Builder() {
@@ -231,6 +256,22 @@ public final class RenderOptions {
                 throw new IllegalArgumentException("Alpha threshold must be in [0, 255]");
             }
             this.alphaThreshold = threshold;
+            return this;
+        }
+
+        /**
+         * Sets the skin part to render ({@link RenderPart#FACE} or
+         * {@link RenderPart#BODY}).
+         *
+         * <p>{@link RenderPart#BODY} requires a provider that exposes full
+         * skins (e.g. {@code MojangSkinProvider}); avatar-proxy providers like
+         * Minotar cannot serve it.</p>
+         *
+         * @param part the part to render, must not be {@code null}
+         * @return this builder
+         */
+        public Builder part(final RenderPart part) {
+            this.part = Objects.requireNonNull(part, "Part cannot be null");
             return this;
         }
 

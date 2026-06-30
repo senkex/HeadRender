@@ -60,6 +60,39 @@ public final class FallbackSkinProvider implements SkinProvider {
         throw last != null ? last : new IOException("No provider could fetch " + target);
     }
 
+    @Override
+    public BufferedImage fetchSkin(final String target) throws IOException {
+        IOException last = null;
+        boolean anySupported = false;
+        for (final SkinProvider provider : providers) {
+            if (!provider.supportsFullSkin()) {
+                continue;
+            }
+            anySupported = true;
+            try {
+                return provider.fetchSkin(target);
+            } catch (final IOException | RuntimeException exception) {
+                last = exception instanceof IOException
+                        ? (IOException) exception
+                        : new IOException(exception);
+            }
+        }
+        if (!anySupported) {
+            throw new UnsupportedOperationException("No provider in the chain exposes full skins");
+        }
+        throw last != null ? last : new IOException("No provider could fetch full skin for " + target);
+    }
+
+    @Override
+    public boolean supportsFullSkin() {
+        for (final SkinProvider provider : providers) {
+            if (provider.supportsFullSkin()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static List<SkinProvider> asList(final SkinProvider... providers) {
         Objects.requireNonNull(providers, "Providers cannot be null");
         final List<SkinProvider> list = new ArrayList<>(providers.length);
