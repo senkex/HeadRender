@@ -144,7 +144,7 @@ center row and is padded with spaces on the other rows so the columns line up.
 Don't like `<head>`? Pass any tag name and the parser will match it:
 
 ```java
-HeadRender.parse("Hola <face>Senkex</face>!", RenderOptions.defaults(), "face")
+HeadRender.parse("Hi <face>Senkex</face>!", RenderOptions.defaults(), "face")
         .thenAccept(lines -> lines.forEach(player::sendMessage));
 ```
 
@@ -162,7 +162,7 @@ The PlaceholderAPI-flavored `%head-NAME%` and `%head_NAME%` (either separator)
 also work out of the box:
 
 ```java
-HeadRender.parsePlaceholders("Bienvenido %head-Senkex% al server!")
+HeadRender.parsePlaceholders("Welcome %head-Senkex% to the server!")
         .thenAccept(lines -> lines.forEach(player::sendMessage));
 ```
 
