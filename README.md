@@ -23,8 +23,9 @@ when you actually need to tweak something. No plugin instance, no `onEnable` cal
 ### Getting Started
 
 The library targets **Java 17** and uses `CompletableFuture` for every IO operation, so HTTP calls
-never block the main thread. The default provider uses [Minotar](https://minotar.net) and an
-in-memory LRU cache with a 10 minute TTL.
+never block the main thread. The default provider goes **straight to Mojang** (online skins in
+offline mode, no proxy) and falls back to [Minotar](https://minotar.net) if Mojang is down or
+rate-limits, with an in-memory LRU cache with a 10 minute TTL.
 
 You can drop it into your project with JitPack:
 
@@ -214,7 +215,7 @@ HeadRender.render("Senkex", RenderOptions.of(2)).thenAccept(lines -> {
 | Tab (header/footer) | `2` – `4` | Header and footer are multi-line, so the head stacks fine |
 | Text Display / Hologram | `6` – `8` | Lines are tight, so the head looks compact |
 | MOTD | `2` | MOTD only has two lines available |
-| Action bar / single tab name | not supported | A head on **one** line needs a negative-space font (resource pack) |
+| Action bar / single tab name | use `FontHeadRenderer` | A head on **one** line needs a resource pack — see [Single-line heads](#single-line-heads-resource-pack) |
 
 ### Adventure Components
 
@@ -260,8 +261,60 @@ HeadRenderService service = DefaultHeadRenderService.builder()
 HeadRender.use(service);
 ```
 
-A negative-space font renderer (tiny single-line inline heads, resource-pack
-backed) plugs into this same interface.
+`FontHeadRenderer` (tiny single-line inline heads, resource-pack backed) plugs
+into this same interface — see [Single-line heads](#single-line-heads-resource-pack).
+
+### Body & Full-Skin Parts
+
+Render the whole player, not just the face. `RenderOptions.part(...)` chooses
+between `RenderPart.FACE` (the classic `8×8` square) and `RenderPart.BODY` (the
+full front silhouette: head + torso + arms + legs, a `16×32` image scaled to
+your `size`):
+
+```java
+HeadRender.render("Senkex", RenderOptions.body(8))
+        .thenAccept(lines -> lines.forEach(player::sendMessage)); // 16 lines tall
+```
+
+Body rendering needs a **full skin** sheet, so it only works with full-skin
+providers (`MojangSkinProvider`, `UrlSkinProvider`, `LocalFileSkinProvider`,
+`StaticSkinProvider`). The default provider is Mojang-first, so it works out of
+the box; avatar-only proxies (Minotar/Crafatar) throw a clear error for body
+parts. The `1:2` ratio is preserved automatically and overlay layers (hat,
+jacket, sleeves, trousers) are composited when the helmet layer is on.
+
+### Single-line heads (resource pack)
+
+A multicolor head on **one** line is impossible in vanilla chat (no
+per-character background), so this is the one feature that needs a resource
+pack. `ResourcePackGenerator` bakes each head into a **bitmap font glyph** and
+`FontHeadRenderer` emits it as a single character:
+
+```java
+ResourcePackGenerator pack = new ResourcePackGenerator().packFormat(34); // match your MC version
+FontHeadRenderer renderer = new FontHeadRenderer(pack);
+
+HeadRender.use(DefaultHeadRenderService.builder().renderer(renderer).build());
+
+// Render the names you want baked (registers their glyphs)...
+List<String> oneLine = HeadRender.render("Senkex").join(); // a single-character line
+
+// ...then write the pack once and host it (server resource-pack URL):
+pack.writeZip(new File("plugins/MyPlugin/heads.zip"));
+```
+
+The glyph only draws the head when the client has the pack **and** the text uses
+the pack's font (`pack.fontKey()`, e.g. `headrender:heads`). Apply it with
+Kyori Adventure:
+
+```java
+String glyph = oneLine.get(0);
+Component head = Component.text(glyph).font(Key.key(pack.fontKey()));
+player.sendMessage(head); // inline head in a tab name, scoreboard, action bar...
+```
+
+`writeDirectory(File)` writes the unzipped tree instead, and `packFormat(int)`
+must match your server's Minecraft version.
 
 ### Effects
 
@@ -290,6 +343,7 @@ service builder. Built-in providers:
 
 | Provider | Target | Notes |
 |---|---|---|
+| `MojangSkinProvider` | name or UUID | **direct from Mojang, no proxy** — online skins in offline mode |
 | `MinotarSkinProvider` | name or UUID | default |
 | `CrafatarSkinProvider` | UUID | `&overlay` for the helmet |
 | `SkinMcSkinProvider` | name | SkinMC face endpoint |
@@ -309,6 +363,37 @@ HeadRender.use(DefaultHeadRenderService.builder().provider(source).build());
 
 Full-skin sources (`UrlSkinProvider`, `LocalFileSkinProvider`, `StaticSkinProvider`)
 crop the 8×8 face — and the helmet overlay when enabled — via `SkinFaces`.
+
+#### Online heads in offline mode (no proxy, no pack, no mod)
+
+`MojangSkinProvider` resolves skins straight from Mojang's official API, with no
+third-party proxy in the middle. This is what lets you show a player's
+**online-mode head while the server runs in offline mode**: the skin is looked
+up by **name** against Mojang, independent of how the player authenticated on
+your server (same approach BungeeTabListPlus uses for `%head-<player>`).
+
+```
+name → api.mojang.com/users/profiles/minecraft/<name>            → UUID
+UUID → sessionserver.mojang.com/session/minecraft/profile/<uuid> → textures (base64)
+base64 → textures.minecraft.net skin URL → download → crop 8×8 face
+```
+
+It needs no JSON dependency (the lib stays zero-deps) and caches resolved skin
+URLs in-memory with a short TTL to respect Mojang's rate limits.
+
+```java
+SkinProvider source = new FallbackSkinProvider(
+        new MojangSkinProvider(),               // official source, no proxy
+        new MinotarSkinProvider(),              // proxy fallback if Mojang is down/limited
+        new StaticSkinProvider(steveImage));    // last-resort Steve, never fails
+
+HeadRender.use(DefaultHeadRenderService.builder().provider(source).build());
+```
+
+> [!NOTE]
+> A name only resolves if it is a **premium account** on Mojang. Offline players
+> whose name isn't a real premium account have no skin to fetch — chain a
+> `StaticSkinProvider` Steve/Alex as the final fallback for those.
 
 ### Custom Service
 
@@ -340,6 +425,33 @@ HeadRender.cache().invalidate("Senkex");
 
 When you're done (plugin disable, server reload, etc.) call `HeadRender.shutdown()` so the service
 releases its thread pool.
+
+### Platform Helpers (Bukkit)
+
+Thin, optional helpers in the `platform` package push rendered lines into common
+surfaces. They touch the Spigot API, which is **`compileOnly`** — the core
+library never loads it, so non-Bukkit consumers are unaffected. Use them only
+inside a plugin.
+
+```java
+// MOTD — render at size 2 (it only has two lines)
+HeadRender.render("Senkex", RenderOptions.of(2))
+        .thenAccept(lines -> BukkitMotd.apply(event, lines)); // ServerListPingEvent
+
+// Tab header / footer
+HeadRender.render("Senkex", RenderOptions.of(3))
+        .thenAccept(lines -> BukkitTab.header(player, lines));
+
+// Written book, one head per page
+HeadRender.render("Senkex").thenAccept(lines -> {
+    ItemStack book = BukkitBook.singlePage("Profile", "Server", lines);
+    player.getInventory().addItem(book);
+});
+```
+
+These stay deliberately platform-light: anything else (scoreboards via FastBoard,
+holograms, NPC plugins, …) consumes the same `List<String>` / `Component`
+output, so you wire it to whatever API you already use.
 
 ## Shading
 
