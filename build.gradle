@@ -65,7 +65,7 @@ publishing {
 
             pom {
                 name = 'HeadRender'
-                description = 'The best library for Minecraft heads'
+                description = 'The lightweight, all-in-one library for Minecraft player heads'
                 url = 'https://github.com/senkex/HeadRender'
                 licenses {
                     license {

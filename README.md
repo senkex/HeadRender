@@ -32,8 +32,8 @@ an in-memory LRU cache (10 min TTL).
 
 Drop it in with JitPack:
 
+#### Maven
 ```xml
-<!-- Maven -->
 <repository>
     <id>jitpack.io</id>
     <url>https://jitpack.io</url>
@@ -46,8 +46,8 @@ Drop it in with JitPack:
 </dependency>
 ```
 
+#### Gradle (Kotlin DSL)
 ```groovy
-// Gradle
 repositories { maven { url 'https://jitpack.io' } }
 dependencies { implementation 'com.github.senkex:HeadRender:version' }
 ```
