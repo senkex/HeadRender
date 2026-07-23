@@ -1,6 +1,6 @@
 package com.github.senkex.headrender;
 
-import com.github.senkex.headrender.text.AdventureTextSerializer;
+import com.github.senkex.headrender.text.adventure.AdventureTextSerializer;
 
 import net.kyori.adventure.text.Component;
 
@@ -155,5 +155,48 @@ public final class HeadRenderComponents {
      */
     public static CompletableFuture<List<Component>> parsePlaceholders(final String text, final RenderOptions options) {
         return HeadRender.parsePlaceholders(text, options).thenApply(AdventureTextSerializer::toComponents);
+    }
+
+    /**
+     * Parses Adventure-style {@code <head:VALUE>} tags and returns components.
+     *
+     * @param text the text to parse
+     * @return a future completed with the resulting components
+     * @see com.github.senkex.headrender.text.adventure.HeadRenderTags
+     */
+    public static CompletableFuture<List<Component>> parseTags(final String text) {
+        return HeadRender.parseTags(text).thenApply(AdventureTextSerializer::toComponents);
+    }
+
+    /**
+     * Parses {@code <head:VALUE>} tags with custom options as components.
+     *
+     * @param text the text to parse
+     * @param options the render configuration
+     * @return a future completed with the resulting components
+     */
+    public static CompletableFuture<List<Component>> parseTags(final String text, final RenderOptions options) {
+        return HeadRender.parseTags(text, options).thenApply(AdventureTextSerializer::toComponents);
+    }
+
+    /**
+     * Parses typed {@code %head:VALUE%} placeholders and returns components.
+     *
+     * @param text the text to parse
+     * @return a future completed with the resulting components
+     */
+    public static CompletableFuture<List<Component>> parseTyped(final String text) {
+        return HeadRender.parseTyped(text).thenApply(AdventureTextSerializer::toComponents);
+    }
+
+    /**
+     * Parses {@code %head:VALUE%} placeholders with custom options.
+     *
+     * @param text the text to parse
+     * @param options the render configuration
+     * @return a future completed with the resulting components
+     */
+    public static CompletableFuture<List<Component>> parseTyped(final String text, final RenderOptions options) {
+        return HeadRender.parseTyped(text, options).thenApply(AdventureTextSerializer::toComponents);
     }
 }

@@ -5,34 +5,25 @@
 [![JitPack](https://jitpack.io/v/senkex/HeadRender.svg)](https://jitpack.io/#senkex/HeadRender)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-Small library focused on **one thing: player heads**. It fetches a skin, crops the
-`8×8` face and turns every pixel into a HEX-colored chat line, so you can print a clean
-avatar next to whatever info you want (welcome messages, profiles, `/seen`, …). It can
-also build the **head as a real item / skull block** that works on every version.
-
-No body, no full-skin parts — just the head, done well.
+Library for rendering Minecraft player heads. It resolves a skin, crops the `8×8` face
+and turns it into chat text, an inline font glyph, a native `1.21.9` head component, or a
+player-head item — one small dependency, no runtime dependencies of its own, async by
+default.
 
 > [!IMPORTANT]
-> Rendering to chat requires Minecraft **1.16+** for HEX colors (`§x§r§r§g§g§b§b`).
-> The head *item* API works from **1.8** onward.
+> Chat rendering requires Minecraft **1.16+** (HEX colors). The head *item* API works from
+> **1.8**. Native head components require a **1.21.9+** client.
 
 > [!CAUTION]
-> [Shade](#shading) the library when shipping it inside a plugin, or two plugins on
+> [Shade](#shading) the library when bundling it into a plugin, or two plugins on
 > different versions will clash on the same package.
 
-The whole point is to stay simple: one static facade, async by default, a builder when
-you actually need to tweak something. No plugin instance, no `onEnable`, no config files.
+## Install
 
-## Getting Started
-
-Targets **Java 17**, uses `CompletableFuture` for every IO call so HTTP never blocks the
-main thread. The default skin source goes **straight to Mojang** (online skins in offline
-mode, no proxy) and falls back to [Minotar](https://minotar.net) if Mojang is down, with
-an in-memory LRU cache (10 min TTL).
-
-Drop it in with JitPack:
+Via [JitPack](https://jitpack.io/#senkex/HeadRender).
 
 #### Maven
+
 ```xml
 <repository>
     <id>jitpack.io</id>
@@ -47,21 +38,62 @@ Drop it in with JitPack:
 ```
 
 #### Gradle (Kotlin DSL)
-```groovy
-repositories { maven { url 'https://jitpack.io' } }
-dependencies { implementation 'com.github.senkex:HeadRender:version' }
+
+```kotlin
+repositories {
+    maven("https://jitpack.io")
+}
+
+dependencies {
+    implementation("com.github.senkex:HeadRender:version")
+}
 ```
 
-## Rendering a head to chat
+#### Gradle (Groovy)
 
-The future resolves with one chat line per pixel row. Names and UUIDs both work:
+```groovy
+repositories {
+    maven { url 'https://jitpack.io' }
+}
+
+dependencies {
+    implementation 'com.github.senkex:HeadRender:version'
+}
+```
+
+### Adventure & MiniMessage
+
+HeadRender declares Adventure, MiniMessage and Spigot as `compileOnly`. This is **not
+transitive and never reaches your POM** — you inherit nothing and cannot end up with a
+duplicate copy of Adventure fighting the server's own.
+
+| Server | Declare |
+|---|---|
+| **Paper 1.18+** | nothing — Adventure and MiniMessage are already on the classpath |
+| **Spigot** | nothing for the core API; the component/MiniMessage facades need Adventure yourself |
+
+The plain `HeadRender` facade never touches Adventure, so the failure is lazy: only classes
+that use components require it. On Spigot, add Adventure with `implementation` **plus a
+relocation** — bundling it unrelocated is what produces `NoSuchMethodError`. See [Shading](#shading).
+
+| Feature | Needs at runtime |
+|---|---|
+| `HeadRender`, `HeadItem`, providers, renderers | nothing |
+| `HeadRenderComponents`, `AdventureTextSerializer` | `adventure-api`, `adventure-text-serializer-legacy` |
+| `HeadRenderTags` (MiniMessage tag) | + `adventure-text-minimessage` |
+| `NativeHeadComponents` (1.21.9 heads) | `adventure-api` **4.25.0+** |
+
+## Rendering
+
+Every call is asynchronous and resolves to one chat line per pixel row. Names and UUIDs
+both work:
 
 ```java
 HeadRender.render("Senkex").thenAccept(lines -> lines.forEach(player::sendMessage));
 HeadRender.render(player.getUniqueId()).thenAccept(player::sendMessage);
 ```
 
-Tweak size, character, helmet layer or transparency with `RenderOptions`:
+Configure size, pixel character, helmet layer and transparency with `RenderOptions`:
 
 ```java
 RenderOptions options = RenderOptions.builder()
@@ -74,126 +106,103 @@ RenderOptions options = RenderOptions.builder()
 HeadRender.render("Senkex", options).thenAccept(lines -> lines.forEach(player::sendMessage));
 ```
 
-The output is just a `List<String>`, so you send it wherever you want — chat, a hologram,
-a text display, an action-bar wrapper, an NPC plugin, a scoreboard API, anything that
-consumes multi-line text.
+Output is a `List<String>`, usable on any surface that consumes multi-line text.
 
-## Inline head tags
+### Positioning
 
-Embed heads inside arbitrary text with `<head>NAME</head>` tags. The library parses the
-input, renders every tag and gives you back chat-ready lines. The head occupies `size`
-rows; surrounding text sits on the center row, padded so columns line up. No pack, no mod:
+Shift the whole head sideways, the same way CenterMessage offsets text. `position`
+is in **pixels** and is realized with leading spaces (a space is `4` px, so it
+snaps to the nearest step). `centered` centers the head block in chat and takes
+precedence over `position`:
 
 ```java
-HeadRender.parse("Welcome <head>Senkex</head> to the server!")
+RenderOptions.builder().position(100).build();   // ~25 spaces to the right
+RenderOptions.builder().centered(true).build();   // centered in chat (154 px)
+RenderOptions.builder().centered(true).centerPx(90).build(); // centered in a narrower area
+```
+
+For centering a head **together with text beside it**, keep the head flush left
+here and hand the rendered lines to CenterMessage's `CenterHead.card(...)`
+(everything centered) or `CenterHead.beside(...)` (head fixed, text centered).
+
+## Head sources (`<head:...>`)
+
+`parseTags` matches the Adventure/MiniMessage self-closing tag, extended with source types
+vanilla does not have:
+
+```java
+HeadRender.parseTags("Steve <head:entity/player/wide/steve> vs <head:Senkex:false>")
         .thenAccept(lines -> lines.forEach(player::sendMessage));
 ```
 
-Tags are case-insensitive, accept names or UUIDs, and you can mix several with newlines.
-Pass a `RenderOptions` as the second argument to style them.
+The value is resolved by `HeadSource`. Write the type explicitly, or let it be detected:
 
-Prefer a different syntax? Every variant returns the same chat-ready lines:
+| Written | Type | Detected because |
+|---|---|---|
+| `<head:Senkex>` | player name | nothing else matched |
+| `<head:1f085b2d-9548-…>` | UUID | parses as a UUID, dashed or trimmed |
+| `<head:entity/player/wide/steve>` | vanilla texture key | contains `/` |
+| `<head:eyJ0aW1lc3RhbXAi…>` | Mojang base64 textures | long base64 blob |
+| `<head:https://textures.minecraft.net/…>` | direct URL | `http://` or `https://` |
 
-| Call | Matches |
+Prefix to be explicit — `player:` / `name:`, `uuid:` / `id:`, `base64:` / `value:` /
+`textures:`, `url:`, `texture:` / `key:` — and suffix `:true` / `:false` to force the
+helmet layer for one head:
+
+```
+<head:player:Senkex>   <head:base64:eyJ0…>   <head:Senkex:false>
+```
+
+`%head:VALUE%` is the placeholder form, via `parseTyped`. The older forms
+(`<head>NAME</head>`, `%head-NAME%`, `%headrender:NAME%`) accept these sources too.
+
+| Method | Matches |
 |---|---|
+| `render(target)` / `render(uuid)` | a single head |
+| `parseTags(text)` | `<head:VALUE>` |
+| `parseTyped(text)` | `%head:VALUE%` |
 | `parse(text)` | `<head>NAME</head>` |
-| `parse(text, options, "face")` | a custom tag, e.g. `<face>NAME</face>` |
 | `parseNamespaced(text)` | `%headrender:NAME%` |
-| `parsePlaceholders(text)` | `%head-NAME%` / `%head_NAME%` (PlaceholderAPI-style) |
-| `parse(text, options, pattern)` | your own `Pattern` (name in capture group `1`) |
+| `parsePlaceholders(text)` | `%head-NAME%` / `%head_NAME%` |
+| `parse(text, options, pattern)` | your own `Pattern` (value in group `1`) |
+
+## Untrusted input
+
+`url:` and `base64:` make the server perform an outbound request to an address the tag
+author chose. If head tags can arrive from chat, signs, books or nicknames, that is a
+server-side request forgery vector.
+
+`HeadSource.parse(raw)` applies `Policy.SAFE` by default: `url:` sources must use `https`
+and target a known skin host, so `<head:url:http://localhost:8123/>` is rejected. Host
+matching is exact — no wildcards, no credentials in the authority — and sources are capped
+at 8 KB.
 
 ```java
-// Custom pattern example: {head:NAME}
-Pattern p = Pattern.compile("\\{head:([^}\\s]+)}");
-HeadRender.parse("Hi {head:Senkex}!", RenderOptions.defaults(), p)
-        .thenAccept(lines -> lines.forEach(player::sendMessage));
+HeadSource.parse(raw);                                // SAFE — the default
+HeadSource.parse(raw, HeadSource.Policy.NAMES_ONLY);  // only name/UUID
+HeadSource.parse(raw, HeadSource.Policy.TRUSTED);     // anything — your config only
 ```
 
-## Per-row heads (`<hd>` markers)
+| Policy | Allows | Use for |
+|---|---|---|
+| `SAFE` *(default)* | all types; URLs restricted to known hosts over https | any input, including player text |
+| `NAMES_ONLY` | only `player` and `uuid` | public chat |
+| `TRUSTED` | everything, any host, plain http | strings **you** wrote |
 
-When you want the head on the left and one line of text per row (a stats panel, say), mark
-each line with `<hd>` and `renderRows` splices one head row into each. The head is only
-injected when the number of `<hd>` lines equals the head height (8 for a default head).
+Tune the allowlist with `Policy.allowing(...).withHosts("cdn.myserver.net")`.
 
-The text after the marker is **your own** — HeadRender doesn't depend on PlaceholderAPI and
-doesn't translate `&` colors. It just splices the head; you resolve placeholders and colors
-yourself first (the `<hd>` marker stays at the very start, so pre-processing leaves it
-intact):
+> [!CAUTION]
+> Never apply `TRUSTED` to text a player can influence.
 
-```java
-List<String> template = List.of(
-        "<hd>",
-        "<hd>  &fName: &b%player_name%",
-        "<hd>  &fRank: &e%vault_rank%",
-        "<hd>",
-        "<hd>  &fBalance: &a$%vault_eco_balance%",
-        "<hd>",
-        "<hd>  &fOnline: &a%server_online%&7/&a%server_max_players%",
-        "<hd>");
+## Inline heads on one line
 
-// Resolve PlaceholderAPI + legacy colors before rendering
-List<String> resolved = template.stream()
-        .map(line -> PlaceholderAPI.setPlaceholders(player, line))
-        .map(line -> ChatColor.translateAlternateColorCodes('&', line))
-        .collect(Collectors.toList());
+A multicolor head in a single character cell is impossible in vanilla chat — one character
+is one color. Two renderers solve it differently.
 
-HeadRender.renderRows("Senkex", resolved).thenAccept(lines -> lines.forEach(player::sendMessage));
-```
+### Resource pack glyph (1.16+)
 
-The marker only matches at the very start of a line, so it never collides with HEX colors
-or gradient tags. Pass a custom marker with `renderRows(target, template, options, marker)`,
-or merge manually with `HeadRowMerger.merge(template, headRows)`.
-
-## Head items & skull blocks
-
-`HeadItem` builds the head as a real **player-head item** (or places a skull block) from a
-name, UUID, skin URL or base64 texture. **No NMS, works 1.8 → latest**: it uses Bukkit's
-`PlayerProfile` API on 1.18.1+ and the classic reflection route below that, picking the
-right material (`PLAYER_HEAD`, or legacy `SKULL_ITEM:3`) automatically.
-
-```java
-ItemStack a = HeadItem.fromUrl("http://textures.minecraft.net/texture/…");
-ItemStack b = HeadItem.fromUuid(uuid);
-ItemStack c = HeadItem.fromBase64(base64);
-
-// Resolve a player's real skin from Mojang (offline mode, no proxy) and build the item
-HeadItem.fromPlayer("Senkex").thenAccept(head ->
-        Bukkit.getScheduler().runTask(plugin, () -> player.getInventory().addItem(head)));
-
-// Skull blocks
-HeadItem.blockWithUrl(block, url);
-HeadItem.blockWithUuid(block, uuid);
-```
-
-`HeadItem` touches the Spigot API (a `compileOnly` dependency) — use it inside a plugin.
-It reuses HeadRender's own Mojang resolution: `fromTextures(provider.fetchTextures(name))`
-turns a resolved skin straight into an item.
-
-## Adventure components
-
-Every `HeadRender` method has a mirror on `HeadRenderComponents` returning Kyori Adventure
-`Component`s instead of legacy strings — for Paper/Velocity, hover/click decoration or
-MiniMessage interop:
-
-```java
-HeadRenderComponents.render("Senkex").thenAccept(lines -> lines.forEach(player::sendMessage));
-HeadRenderComponents.renderMultiline("Senkex").thenAccept(player::sendMessage); // single joined component
-```
-
-Adventure is **optional** (`compileOnly`): the plain facade never touches it. Add it only
-if you call the component API. Already have legacy lines? Convert them with
-`AdventureTextSerializer.toComponents(lines)` / `toMultilineComponent(lines)`.
-
-## Renderers
-
-How pixels become text is pluggable through the `HeadRenderer` strategy, swapped on the
-service builder:
-
-- **`HexPixelRenderer`** (default) — one colored character per pixel, no resource pack,
-  `size` stacked lines.
-- **`FontHeadRenderer`** — a single-character inline head for a tab name, action bar or
-  scoreboard. A multicolor head on **one** line is impossible in vanilla chat, so this one
-  bakes each head into a bitmap-font glyph via `ResourcePackGenerator`:
+`FontHeadRenderer` bakes each head into a bitmap-font glyph in the Unicode Private Use Area.
+The head renders as a single character once the client has the generated pack:
 
 ```java
 ResourcePackGenerator pack = new ResourcePackGenerator().packFormat(34); // match your MC version
@@ -202,9 +211,78 @@ HeadRender.use(DefaultHeadRenderService.builder().renderer(new FontHeadRenderer(
 String glyph = HeadRender.render("Senkex").join().get(0); // registers + returns the glyph
 pack.writeZip(new File("plugins/MyPlugin/heads.zip"));     // host it as a server resource pack
 
-// The glyph only draws with the pack + its font applied:
 Component head = Component.text(glyph).font(Key.key(pack.fontKey()));
 ```
+
+`HeadRenderTags` exposes this as a MiniMessage `<head:...>` tag. Rendering is async and
+MiniMessage is not, so tags read from a bounded cache you warm with `preload`:
+
+```java
+HeadRenderTags tags = HeadRenderTags.create(service, Key.key(pack.fontKey()));
+
+tags.preload(raw).thenAccept(v -> {
+    Component msg = MiniMessage.miniMessage().deserialize(raw, tags.resolver());
+    player.sendMessage(msg);
+});
+```
+
+### Native component (1.21.9+)
+
+Minecraft `1.21.9` added a native player-head component. `NativeHeadComponents` maps a
+`HeadSource` onto it — nothing is downloaded, rendered, cached or threaded; the client draws
+the head:
+
+```java
+if (NativeHeadComponents.isSupported()) {
+    player.sendMessage(NativeHeadComponents.parseTags("Hola <head:Senkex>!"));
+}
+
+Component msg = MiniMessage.miniMessage()
+        .deserialize("<gray>Hola <head:Senkex>!", HeadRenderTags.nativeResolver());
+```
+
+| | Native component | Resource-pack glyph |
+|---|---|---|
+| Clients | 1.21.9+ | 1.16+ |
+| Network, threads, cache | none | one bounded fetch, cached |
+| Resource pack | not needed | required |
+| Sources | name, uuid, base64, texture key | all of those **+ `url:`** |
+
+`isSupported()` reports the *server's* Adventure version, not the viewer's — detecting the
+client requires ViaVersion or a platform API. `url:` has no vanilla equivalent, so
+`playerHead` refuses it and `parseTags` leaves such a tag as literal text.
+
+## Head items & skull blocks
+
+`HeadItem` builds the head as a player-head item or places a skull block, from a name, UUID,
+skin URL or base64 texture. No NMS, works 1.8 → latest: it uses Bukkit's `PlayerProfile` API
+on 1.18.1+ and reflection below that, selecting the right material automatically.
+
+```java
+ItemStack a = HeadItem.fromUrl("https://textures.minecraft.net/texture/…");
+ItemStack b = HeadItem.fromUuid(uuid);
+ItemStack c = HeadItem.fromBase64(base64);
+
+HeadItem.fromPlayer("Senkex").thenAccept(head ->
+        Bukkit.getScheduler().runTask(plugin, () -> player.getInventory().addItem(head)));
+
+HeadItem.blockWithUrl(block, url);
+```
+
+`HeadItem` uses the Spigot API (`compileOnly`) — call it inside a plugin.
+
+## Adventure components
+
+Every `HeadRender` method has a mirror on `HeadRenderComponents` returning Kyori Adventure
+`Component`s instead of legacy strings, for Paper/Velocity, hover/click decoration or
+MiniMessage interop:
+
+```java
+HeadRenderComponents.render("Senkex").thenAccept(lines -> lines.forEach(player::sendMessage));
+HeadRenderComponents.renderMultiline("Senkex").thenAccept(player::sendMessage);
+```
+
+Have legacy lines already? Convert them with `AdventureTextSerializer.toComponents(lines)`.
 
 ## Skin providers
 
@@ -212,37 +290,34 @@ The skin source is pluggable and combinable on the service builder:
 
 | Provider | Target | Notes |
 |---|---|---|
-| `MojangSkinProvider` | name or UUID | **direct from Mojang, no proxy** — online skins in offline mode (default) |
+| `MojangSkinProvider` | name or UUID | direct from Mojang, no proxy — online skins in offline mode (default) |
 | `MinotarSkinProvider` | name or UUID | proxy fallback |
 | `CrafatarSkinProvider` | UUID only | adds the helmet overlay when enabled |
 | `SkinMcSkinProvider` | name | SkinMC face endpoint |
 | `UrlSkinProvider` | image URL | crops the face from a full skin |
 | `LocalFileSkinProvider` | file name | reads `<dir>/<name>.png` |
-| `StaticSkinProvider` | (ignored) | always serves one image — great as a fallback |
+| `StaticSkinProvider` | (ignored) | always serves one image |
+| `SourceSkinProvider` | `HeadSource` | dispatches by type; wraps the chain automatically |
 | `FallbackSkinProvider` | — | tries a chain, first success wins |
 
 ```java
 SkinProvider source = new FallbackSkinProvider(
         new MojangSkinProvider(),            // official source, no proxy
-        new MinotarSkinProvider(),           // proxy fallback if Mojang is down/limited
-        new StaticSkinProvider(steveImage)); // last-resort Steve, never fails
+        new MinotarSkinProvider(),           // proxy fallback
+        new StaticSkinProvider(steveImage)); // last resort, never fails
 
 HeadRender.use(DefaultHeadRenderService.builder().provider(source).build());
 ```
 
-`MojangSkinProvider` is what shows a player's **online-mode head while your server runs in
-offline mode**: the skin is looked up by name against Mojang, independent of how the player
-authenticated (the same approach BungeeTabListPlus uses for `%head-<player>`). It needs no
-JSON dependency and caches resolved URLs with a short TTL.
+`MojangSkinProvider` shows a player's online-mode head while the server runs in offline
+mode: the skin is looked up by name against Mojang, independent of how the player
+authenticated. It needs no JSON dependency and caches resolved URLs with a short TTL.
 
 > [!NOTE]
-> A name only resolves if it's a **premium** account. For offline players whose name isn't
-> premium, chain a `StaticSkinProvider` Steve/Alex as the final fallback.
+> A name only resolves if it is a **premium** account. For non-premium offline players,
+> chain a `StaticSkinProvider` Steve/Alex as the final fallback.
 
 ## Custom service & cache
-
-The static facade wraps a `HeadRenderService`, so you can replace the provider, the cache,
-or both — e.g. a longer TTL or a bigger cache:
 
 ```java
 HeadRenderService service = DefaultHeadRenderService.builder()
@@ -253,9 +328,6 @@ HeadRenderService service = DefaultHeadRenderService.builder()
 HeadRender.use(service);
 ```
 
-The cache is shared across calls on the same service (keyed by lowercase target, so
-`"Senkex"` and `"senkex"` share an entry). A few helpers sit on the facade:
-
 ```java
 HeadRender.cacheSize();
 HeadRender.clearCache();
@@ -263,18 +335,65 @@ HeadRender.cache().invalidate("Senkex");
 HeadRender.shutdown(); // on plugin disable — releases the thread pool
 ```
 
+## Footprint
+
+Everything is bounded and idles at zero:
+
+| | |
+|---|---|
+| **Threads** | `0` while idle, **max 2**, daemon, `MIN_PRIORITY`, 30 s keep-alive |
+| **Scheduler tasks** | none — no Bukkit runnable, no listener, no tick hook |
+| **Skin cache** | LRU, 256 entries, 10 min TTL |
+| **Glyph cache** | LRU, 512 entries, with a 64-render in-flight cap |
+| **Runtime dependencies** | none — only `java.*` plus the server's own Adventure |
+
+Disabling the cache (`useCache(false)`) re-downloads the same skin on every call and walks
+into Mojang's rate limit (`HTTP 429`). Leave it on unless you have a reason.
+
+## Package layout
+
+```
+com.github.senkex.headrender
+├── HeadRender              facade — legacy §x strings
+├── HeadRenderComponents    facade — Adventure Components
+├── DefaultHeadRenderService
+├── RenderOptions
+├── api/                    contracts: HeadRenderService, HeadRenderer, SkinProvider, SkinCache
+├── render/                 image → text: HexPixelRenderer, FontHeadRenderer, ResourcePackGenerator
+├── skin/                   HeadSource, SkinFaces, TextureProperty, InMemorySkinCache
+│   └── provider/           every SkinProvider implementation
+├── text/                   HeadTagParser, HeadRowMerger
+│   └── adventure/          AdventureTextSerializer, HeadRenderTags, NativeHeadComponents
+└── item/                   HeadItem
+```
+
+If a class lives in `text.adventure`, it needs Adventure at runtime; nothing outside it does.
+
+## Tests
+
+```bash
+./gradlew test        # unit suite, offline, ~1s
+./gradlew smokeJar    # build/libs/HeadRender-<version>-smoke.jar
+java -jar build/libs/HeadRender-2.0.0-smoke.jar
+```
+
+`src/test/java` mirrors the main tree: `HeadSourceTest` and `HeadSourcePolicyTest` (parsing
+and the SSRF boundary — loopback, cloud metadata, host spoofing), `HeadTagParserTest`,
+`NativeHeadComponentsTest` (the native wire format, pinned against Adventure's fixtures) and
+`RenderPipelineTest` (end to end). Nothing touches the network — a synthetic skin runs
+through a `StaticSkinProvider`, so the suite runs offline in about a second.
+
+The smoke jar runs the same suite from a plain `java -jar` on any JDK 17+, so it works when
+the Gradle wrapper's JDK requirement doesn't match your default `java`. It exits non-zero on
+failure.
+
 ## Shading
 
-When you ship HeadRender **inside** your plugin jar you must relocate its package. Two
+When you bundle HeadRender inside your plugin jar you **must** relocate its package. Two
 plugins bundling different versions of `com.github.senkex.headrender` will otherwise load
-whichever one wins the classpath and break the other. Relocation moves the classes under
-your own package so each plugin carries its own private copy.
-
-Change `my.plugin.libs.headrender` to a package inside your own plugin, then rebuild.
+whichever wins the classpath and break the other.
 
 ### Maven (Shade Plugin)
-
-Add the plugin to your `<build><plugins>` and bind it to the `package` phase:
 
 ```xml
 <plugin>
@@ -284,9 +403,7 @@ Add the plugin to your `<build><plugins>` and bind it to the `package` phase:
     <executions>
         <execution>
             <phase>package</phase>
-            <goals>
-                <goal>shade</goal>
-            </goals>
+            <goals><goal>shade</goal></goals>
             <configuration>
                 <relocations>
                     <relocation>
@@ -300,29 +417,7 @@ Add the plugin to your `<build><plugins>` and bind it to the `package` phase:
 </plugin>
 ```
 
-Build with `mvn package` — the shaded jar in `target/` is the one you ship.
-
 ### Gradle (Shadow)
-
-Apply the Shadow plugin, relocate the package, and make `build` produce the shaded jar:
-
-```kotlin
-plugins {
-    id("com.gradleup.shadow") version "8.3.5"
-}
-
-tasks {
-    shadowJar {
-        relocate("com.github.senkex.headrender", "my.plugin.libs.headrender")
-    }
-
-    build {
-        dependsOn(shadowJar)
-    }
-}
-```
-
-Groovy DSL:
 
 ```groovy
 plugins {
@@ -333,16 +428,15 @@ tasks {
     shadowJar {
         relocate 'com.github.senkex.headrender', 'my.plugin.libs.headrender'
     }
-
     build {
         dependsOn shadowJar
     }
 }
 ```
 
-Build with `gradle shadowJar` (or `build`) — the shaded jar in `build/libs/` is the one
-you ship.
+Change `my.plugin.libs.headrender` to a package inside your own plugin, then build the
+shaded jar — the one in `build/libs/` (or Maven's `target/`) is what you ship.
 
 ## License
 
-Released under the MIT License. Do whatever you want with it; attribution is appreciated.
+Released under the [MIT License](LICENSE).

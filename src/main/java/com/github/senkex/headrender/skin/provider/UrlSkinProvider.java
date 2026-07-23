@@ -1,6 +1,8 @@
-package com.github.senkex.headrender.skin;
+package com.github.senkex.headrender.skin.provider;
 
 import com.github.senkex.headrender.api.SkinProvider;
+import com.github.senkex.headrender.skin.HttpImages;
+import com.github.senkex.headrender.skin.SkinFaces;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;

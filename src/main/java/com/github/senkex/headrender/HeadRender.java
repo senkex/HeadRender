@@ -253,6 +253,67 @@ public final class HeadRender {
     }
 
     /**
+     * Parses text replacing Adventure-style {@code <head:VALUE>} tags with the
+     * rendered head.
+     *
+     * <p>{@code VALUE} accepts an explicit {@code type:value} pair, a bare value
+     * whose type is detected, and an optional trailing {@code :true} /
+     * {@code :false} helmet override.</p>
+     *
+     * <p>Example:</p>
+     * <pre>{@code
+     * HeadRender.parseTags("Steve <head:entity/player/wide/steve> vs <head:Senkex:false>")
+     *     .thenAccept(lines -> lines.forEach(player::sendMessage));
+     * }</pre>
+     *
+     * @param text the text to parse
+     * @return a future completed with the resulting chat lines
+     * @see com.github.senkex.headrender.skin.HeadSource
+     */
+    public static CompletableFuture<List<String>> parseTags(final String text) {
+        return service().parseTags(text);
+    }
+
+    /**
+     * Parses text replacing {@code <head:VALUE>} tags with custom options.
+     *
+     * @param text the text to parse
+     * @param options the render configuration applied to every tag
+     * @return a future completed with the resulting chat lines
+     */
+    public static CompletableFuture<List<String>> parseTags(final String text, final RenderOptions options) {
+        return service().parseTags(text, options);
+    }
+
+    /**
+     * Parses text replacing typed {@code %head:VALUE%} placeholders with the
+     * rendered head.
+     *
+     * <p>Example:</p>
+     * <pre>{@code
+     * HeadRender.parseTyped("Top 1: %head:player:Senkex%")
+     *     .thenAccept(lines -> lines.forEach(player::sendMessage));
+     * }</pre>
+     *
+     * @param text the text to parse
+     * @return a future completed with the resulting chat lines
+     */
+    public static CompletableFuture<List<String>> parseTyped(final String text) {
+        return service().parseTyped(text);
+    }
+
+    /**
+     * Parses text replacing {@code %head:VALUE%} placeholders with custom options.
+     *
+     * @param text the text to parse
+     * @param options the render configuration applied to every placeholder
+     * @return a future completed with the resulting chat lines
+     */
+    public static CompletableFuture<List<String>> parseTyped(final String text, final RenderOptions options) {
+        return service().parseTyped(text, options);
+    }
+
+    /**
      * Renders the given player into a template of chat lines, injecting one head
      * row per {@code <hd>} marker line.
      *

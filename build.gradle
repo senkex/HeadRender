@@ -22,8 +22,57 @@ repositories {
 dependencies {
     compileOnly 'org.spigotmc:spigot-api:1.20.4-R0.1-SNAPSHOT'
 
-    compileOnly 'net.kyori:adventure-api:4.17.0'
-    compileOnly 'net.kyori:adventure-text-serializer-legacy:4.17.0'
+    // Adventure is compileOnly on purpose: Paper 1.18+ already ships it on the
+    // server classpath, so consumers inherit nothing and never risk a duplicate
+    // copy shadowed into their plugin. On Spigot only the plain HeadRender
+    // facade is usable; the component/MiniMessage facades need these present.
+    // 4.25.0 is the first release with the player-head object component that
+    // NativeHeadComponents maps onto. Only that one class needs it; everything
+    // else stays compatible with the 4.14-era Adventure older Paper builds ship.
+    compileOnly 'net.kyori:adventure-api:4.25.0'
+    compileOnly 'net.kyori:adventure-text-serializer-legacy:4.25.0'
+    compileOnly 'net.kyori:adventure-text-minimessage:4.25.0'
+
+    // compileOnly does NOT reach the test classpath, so the optional deps are
+    // re-declared here. Tests are the one place we want them for real.
+    testImplementation 'net.kyori:adventure-api:4.25.0'
+    testImplementation 'net.kyori:adventure-text-serializer-legacy:4.25.0'
+    testImplementation 'net.kyori:adventure-text-minimessage:4.25.0'
+    testImplementation 'net.kyori:adventure-text-serializer-gson:4.25.0'
+
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    // Not testRuntimeOnly: SmokeTest drives the launcher API directly so the
+    // suite can run from a plain `java -jar`.
+    testImplementation 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat = 'full'
+    }
+}
+
+// A self-contained runnable jar that executes the whole suite without Gradle:
+//   java -jar build/libs/HeadRender-<version>-smoke.jar
+// Works around the gradlew-needs-JDK-17/21 problem — the jar runs on any JDK 17+.
+tasks.register('smokeJar', Jar) {
+    dependsOn tasks.testClasses
+    archiveClassifier.set('smoke')
+    from sourceSets.main.output
+    from sourceSets.test.output
+    // Bundles Adventure and JUnit. This jar is a test harness, never published,
+    // so fattening it costs the consumer nothing.
+    from {
+        configurations.testRuntimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/versions/9/module-info.class'
+    manifest {
+        attributes 'Main-Class': 'com.github.senkex.headrender.SmokeTest'
+    }
 }
 
 def targetJavaVersion = 17
@@ -89,3 +138,4 @@ publishing {
         }
     }
 }
+

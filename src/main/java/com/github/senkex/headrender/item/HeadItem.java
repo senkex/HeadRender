@@ -1,6 +1,6 @@
 package com.github.senkex.headrender.item;
 
-import com.github.senkex.headrender.skin.MojangSkinProvider;
+import com.github.senkex.headrender.skin.provider.MojangSkinProvider;
 import com.github.senkex.headrender.skin.TextureProperty;
 
 import org.bukkit.Bukkit;

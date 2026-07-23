@@ -1,9 +1,11 @@
 package com.github.senkex.headrender.api;
 
 import com.github.senkex.headrender.RenderOptions;
+import com.github.senkex.headrender.skin.HeadSource;
 import com.github.senkex.headrender.text.HeadTagParser;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
@@ -57,6 +59,32 @@ public interface HeadRenderService {
      * @return a future completed with one chat line per pixel row
      */
     CompletableFuture<List<String>> render(UUID uuid, RenderOptions options);
+
+    /**
+     * Renders the given resolved skin origin using default options.
+     *
+     * @param source the skin origin
+     * @return a future completed with one chat line per pixel row
+     */
+    default CompletableFuture<List<String>> render(final HeadSource source) {
+        return render(source, RenderOptions.defaults());
+    }
+
+    /**
+     * Renders the given resolved skin origin using custom options.
+     *
+     * <p>The source's helmet override, when present, takes precedence over the
+     * one carried by {@code options}.</p>
+     *
+     * @param source the skin origin
+     * @param options the render configuration
+     * @return a future completed with one chat line per pixel row
+     */
+    default CompletableFuture<List<String>> render(final HeadSource source, final RenderOptions options) {
+        Objects.requireNonNull(source, "Source cannot be null");
+        Objects.requireNonNull(options, "Options cannot be null");
+        return render(source.canonical(), source.applyTo(options));
+    }
 
     /**
      * Parses the given text and replaces every {@code <head>NAME</head>}
@@ -166,6 +194,64 @@ public interface HeadRenderService {
      */
     default CompletableFuture<List<String>> parseNamespaced(final String text) {
         return parseNamespaced(text, RenderOptions.defaults());
+    }
+
+    /**
+     * Parses the given text replacing Adventure-style {@code <head:VALUE>} tags
+     * with the rendered head.
+     *
+     * <p>This is the MiniMessage-compatible flavour. {@code VALUE} accepts an
+     * explicit {@code type:value} pair, a bare value whose type is detected, and
+     * an optional trailing {@code :true} / {@code :false} helmet override — see
+     * {@link HeadSource}.</p>
+     *
+     * <pre>{@code
+     * service.parseTags("Hola <head:Senkex>, mira <head:base64:eyJ0...>");
+     * }</pre>
+     *
+     * @param text the text to parse
+     * @param options the render configuration applied to every tag
+     * @return a future completed with the resulting chat lines
+     */
+    default CompletableFuture<List<String>> parseTags(final String text, final RenderOptions options) {
+        return parse(text, options, HeadTagParser.SEQUENTIAL);
+    }
+
+    /**
+     * Parses the given text replacing {@code <head:VALUE>} tags using default
+     * options.
+     *
+     * @param text the text to parse
+     * @return a future completed with the resulting chat lines
+     */
+    default CompletableFuture<List<String>> parseTags(final String text) {
+        return parseTags(text, RenderOptions.defaults());
+    }
+
+    /**
+     * Parses the given text replacing typed {@code %head:VALUE%} placeholders
+     * with the rendered head.
+     *
+     * <p>The placeholder counterpart of {@link #parseTags(String, RenderOptions)},
+     * for configs written with {@code %} placeholders instead of tags.</p>
+     *
+     * @param text the text to parse
+     * @param options the render configuration applied to every placeholder
+     * @return a future completed with the resulting chat lines
+     */
+    default CompletableFuture<List<String>> parseTyped(final String text, final RenderOptions options) {
+        return parse(text, options, HeadTagParser.TYPED_PLACEHOLDER);
+    }
+
+    /**
+     * Parses the given text replacing {@code %head:VALUE%} placeholders using
+     * default options.
+     *
+     * @param text the text to parse
+     * @return a future completed with the resulting chat lines
+     */
+    default CompletableFuture<List<String>> parseTyped(final String text) {
+        return parseTyped(text, RenderOptions.defaults());
     }
 
     /**

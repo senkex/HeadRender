@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="CompilerConfiguration">
-    <bytecodeTargetLevel target="17" />
+    <bytecodeTargetLevel target="17">
+      <module name="IdeaProjects.HeadRender.test" target="21" />
+      <module name="IdeaProjects.HeadRender.test.main" target="21" />
+      <module name="IdeaProjects.HeadRender.test.test" target="21" />
+    </bytecodeTargetLevel>
   </component>
 </project>

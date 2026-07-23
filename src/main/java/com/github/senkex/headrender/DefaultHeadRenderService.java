@@ -6,10 +6,12 @@ import com.github.senkex.headrender.api.SkinCache;
 import com.github.senkex.headrender.api.SkinProvider;
 import com.github.senkex.headrender.render.HexPixelRenderer;
 import com.github.senkex.headrender.render.ImageScaler;
-import com.github.senkex.headrender.skin.FallbackSkinProvider;
+import com.github.senkex.headrender.skin.provider.FallbackSkinProvider;
+import com.github.senkex.headrender.skin.HeadSource;
 import com.github.senkex.headrender.skin.InMemorySkinCache;
-import com.github.senkex.headrender.skin.MinotarSkinProvider;
-import com.github.senkex.headrender.skin.MojangSkinProvider;
+import com.github.senkex.headrender.skin.provider.MinotarSkinProvider;
+import com.github.senkex.headrender.skin.provider.MojangSkinProvider;
+import com.github.senkex.headrender.skin.provider.SourceSkinProvider;
 import com.github.senkex.headrender.text.HeadTagParser;
 
 import java.awt.image.BufferedImage;
@@ -23,8 +25,10 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
@@ -46,7 +50,13 @@ public final class DefaultHeadRenderService implements HeadRenderService {
     private final ExecutorService executor;
 
     private DefaultHeadRenderService(final Builder builder) {
-        this.provider = builder.provider != null ? builder.provider : defaultProvider();
+        // Every target reaching the provider is a canonical HeadSource string,
+        // so the chain is wrapped once here. Already-wrapped providers are left
+        // alone to keep a user-supplied configuration intact.
+        final SkinProvider configured = builder.provider != null ? builder.provider : defaultProvider();
+        this.provider = configured instanceof SourceSkinProvider
+                ? configured
+                : SourceSkinProvider.wrapping(configured);
         this.cache = builder.cache != null ? builder.cache : new InMemorySkinCache();
         this.renderer = builder.renderer != null ? builder.renderer : HexPixelRenderer.INSTANCE;
         this.executor = builder.executor != null ? builder.executor : defaultExecutor();
@@ -72,13 +82,30 @@ public final class DefaultHeadRenderService implements HeadRenderService {
     public CompletableFuture<List<String>> render(final String target, final RenderOptions options) {
         Objects.requireNonNull(target, "Target cannot be null");
         Objects.requireNonNull(options, "Options cannot be null");
+        return render(HeadSource.parse(target), options);
+    }
+
+    /**
+     * Renders the given source using custom options.
+     *
+     * @param source the resolved skin origin
+     * @param options the render configuration
+     * @return a future completed with one chat line per pixel row
+     */
+    @Override
+    public CompletableFuture<List<String>> render(final HeadSource source, final RenderOptions options) {
+        Objects.requireNonNull(source, "Source cannot be null");
+        Objects.requireNonNull(options, "Options cannot be null");
+
+        final String target = source.canonical();
+        final RenderOptions effective = source.applyTo(options);
 
         return CompletableFuture.supplyAsync(() -> {
             try {
-                final BufferedImage image = obtainImage(target, options);
-                final int size = options.getSize();
+                final BufferedImage image = obtainImage(target, effective);
+                final int size = effective.getSize();
                 final BufferedImage scaled = ImageScaler.scalePixel(image, size, size);
-                return renderer.render(scaled, options);
+                return offset(renderer.render(scaled, effective), effective.leadingSpaces(size));
             } catch (final Exception exception) {
                 throw new HeadRenderException("Failed to render head for " + target, exception);
             }
@@ -121,25 +148,25 @@ public final class DefaultHeadRenderService implements HeadRenderService {
         }
 
         final String[] blocks = text.split("\n", -1);
-        final Set<String> targets = new LinkedHashSet<>();
+        final Set<HeadSource> targets = new LinkedHashSet<>();
         for (final String block : blocks) {
             for (final HeadTagParser.Segment segment : HeadTagParser.parse(block, pattern)) {
                 if (segment.isHead()) {
-                    targets.add(segment.value());
+                    targets.add(segment.source());
                 }
             }
         }
 
-        final Map<String, CompletableFuture<List<String>>> futures = new HashMap<>();
-        for (final String target : targets) {
+        final Map<HeadSource, CompletableFuture<List<String>>> futures = new HashMap<>();
+        for (final HeadSource target : targets) {
             futures.put(target, render(target, options));
         }
 
         return CompletableFuture
                 .allOf(futures.values().toArray(new CompletableFuture<?>[0]))
                 .thenApply(ignored -> {
-                    final Map<String, List<String>> resolved = new HashMap<>(futures.size());
-                    for (final Map.Entry<String, CompletableFuture<List<String>>> entry : futures.entrySet()) {
+                    final Map<HeadSource, List<String>> resolved = new HashMap<>(futures.size());
+                    for (final Map.Entry<HeadSource, CompletableFuture<List<String>>> entry : futures.entrySet()) {
                         resolved.put(entry.getKey(), entry.getValue().join());
                     }
                     return assemble(blocks, resolved, options, pattern);
@@ -147,7 +174,7 @@ public final class DefaultHeadRenderService implements HeadRenderService {
     }
 
     private static List<String> assemble(final String[] blocks,
-                                         final Map<String, List<String>> heads,
+                                         final Map<HeadSource, List<String>> heads,
                                          final RenderOptions options,
                                          final Pattern pattern) {
         final List<String> output = new ArrayList<>();
@@ -164,7 +191,7 @@ public final class DefaultHeadRenderService implements HeadRenderService {
             int height = 0;
             for (final HeadTagParser.Segment segment : segments) {
                 if (segment.isHead()) {
-                    final List<String> rendered = heads.get(segment.value());
+                    final List<String> rendered = heads.get(segment.source());
                     if (rendered != null) {
                         height = Math.max(height, rendered.size());
                     }
@@ -183,7 +210,7 @@ public final class DefaultHeadRenderService implements HeadRenderService {
 
             for (final HeadTagParser.Segment segment : segments) {
                 if (segment.isHead()) {
-                    final List<String> rendered = heads.get(segment.value());
+                    final List<String> rendered = heads.get(segment.source());
                     final int rowCount = Math.min(height, rendered.size());
                     for (int i = 0; i < rowCount; i++) {
                         rows[i].append(rendered.get(i));
@@ -202,6 +229,26 @@ public final class DefaultHeadRenderService implements HeadRenderService {
             }
         }
         return output;
+    }
+
+    /**
+     * Prepends {@code spaces} blank characters to every rendered line, shifting
+     * the whole head sideways while keeping its columns aligned.
+     *
+     * @param lines the rendered head lines
+     * @param spaces the number of leading spaces to prepend
+     * @return the shifted lines, or the same list when {@code spaces <= 0}
+     */
+    private static List<String> offset(final List<String> lines, final int spaces) {
+        if (spaces <= 0 || lines.isEmpty()) {
+            return lines;
+        }
+        final String pad = repeat(' ', spaces);
+        final List<String> shifted = new ArrayList<>(lines.size());
+        for (final String line : lines) {
+            shifted.add(pad + line);
+        }
+        return shifted;
     }
 
     private static String repeat(final char character, final int count) {
@@ -281,17 +328,45 @@ public final class DefaultHeadRenderService implements HeadRenderService {
         return new FallbackSkinProvider(new MojangSkinProvider(), new MinotarSkinProvider());
     }
 
+    /**
+     * Upper bound on worker threads owned by the default executor.
+     *
+     * <p>The work is a short HTTP fetch followed by a small image resize, so
+     * throughput is bound by the network, not by cores. Two threads keep a
+     * render queue moving without the library ever becoming a visible line in a
+     * timings report.</p>
+     */
+    public static final int DEFAULT_MAX_THREADS = 2;
+
+    /**
+     * Longest a worker thread stays alive with nothing to do, in seconds.
+     */
+    public static final long DEFAULT_THREAD_KEEP_ALIVE_SECONDS = 30L;
+
     private static ExecutorService defaultExecutor() {
-        return Executors.newCachedThreadPool(new ThreadFactory() {
+        final ThreadFactory factory = new ThreadFactory() {
             private final AtomicInteger counter = new AtomicInteger();
 
             @Override
             public Thread newThread(final Runnable runnable) {
                 final Thread thread = new Thread(runnable, "HeadRender-Worker-" + counter.incrementAndGet());
                 thread.setDaemon(true);
+                // Never compete with the server's main loop for CPU.
+                thread.setPriority(Thread.MIN_PRIORITY);
                 return thread;
             }
-        });
+        };
+
+        // A cached pool would spawn one thread per queued render, so a burst of
+        // tags could create hundreds. This is capped, and it winds all the way
+        // down to zero threads while idle: an unused HeadRender costs nothing.
+        final ThreadPoolExecutor executor = new ThreadPoolExecutor(
+                0, DEFAULT_MAX_THREADS,
+                DEFAULT_THREAD_KEEP_ALIVE_SECONDS, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(),
+                factory);
+        executor.allowCoreThreadTimeOut(true);
+        return executor;
     }
 
     /**
